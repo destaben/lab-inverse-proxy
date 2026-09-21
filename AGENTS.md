@@ -23,3 +23,6 @@ This repository owns the private HTTP edge for the Signal Relay laboratory. It d
 
 - Use `.github/instructions/edge-proxy.instructions.md` for Nginx, Compose, Cloudflare, documentation, and deployment changes.
 - Use `edge-boundary-reviewer` for public exposure, proxy routes, headers, Docker ports, and tunnel-boundary reviews.
+- Use the `release-validation` skill before completing changes to the edge, its tests, deployment documentation, or AI customizations.
+- Invoke `documentation-curator` after implementation to update only documentation and AI context made inaccurate or newly necessary by the diff.
+- Use `change-verifier` to select and run the required local checks for the current diff. It reports results but does not deploy, commit, or record hidden state.
