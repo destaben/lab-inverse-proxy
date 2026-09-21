@@ -6,7 +6,9 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     networks:
-      - edge
+      edge:
+      tunnel_ingress:
+        ipv4_address: 172.30.250.3
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -37,7 +39,9 @@ services:
       nginx:
         condition: service_healthy
     networks:
-      - edge
+      tunnel_egress: {}
+      tunnel_ingress:
+        ipv4_address: 172.30.250.2
     init: true
     read_only: true
     tmpfs:
@@ -52,3 +56,9 @@ networks:
   edge:
     name: destaben-edge
     external: true
+  tunnel_egress:
+  tunnel_ingress:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.250.0/29
