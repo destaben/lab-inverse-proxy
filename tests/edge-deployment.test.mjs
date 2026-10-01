@@ -42,8 +42,9 @@ test("keeps the edge private, bounded, and isolates tunnel ingress from the rela
   assert.match(nginx, /\^\(GET\|HEAD\|POST\|OPTIONS\)\$/);
   assert.match(nginx, /limit_req zone=reticulum_lab burst=2 nodelay/);
   assert.match(nginx, /listen 8081;/);
-  assert.match(nginx, /location = \/api\/services\/script\/meshtastic_public_broadcast/);
-  assert.match(nginx, /location = \/api\/services\/script\/meshtastic_public_broadcast \{\s+if \(\$request_method !~ \^POST\$\) \{ return 405; \}\s+proxy_read_timeout 15s;\s+proxy_send_timeout 15s;/);
+  assert.match(nginx, /location = \/api\/services\/script\/turn_on/);
+  assert.match(nginx, /script\\\.meshtastic_public_broadcast/);
+  assert.match(nginx, /location = \/api\/services\/script\/turn_on \{\s+if \(\$request_method !~ \^POST\$\) \{ return 405; \}\s+if \(\$request_body !~ '[^']*meshtastic_public_broadcast"'\) \{ return 400; \}\s+proxy_read_timeout 15s;\s+proxy_send_timeout 15s;/);
   assert.match(nginx, /input_text\\\.meshtastic_public_last_/);
   assert.match(nginx, /sensor\\\.meshtastic_d3st_2661074868_/);
   assert.doesNotMatch(nginx, /location ~ \^\/api\/states\/\[-_a-zA-Z0-9\.\]\+\$/);
