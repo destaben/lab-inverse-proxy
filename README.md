@@ -10,6 +10,17 @@ Nginx binds diagnostics only to `127.0.0.1:8080`. The Tunnel is the only public 
 
 Nginx trusts `CF-Connecting-IP` only from that private Cloudflared address, applies per-client connection and request limits, permits only the documented HTTP methods, and returns `404` for every other path. These controls bound HTTP work after traffic reaches the tunnel; they do not replace upstream volumetric DDoS protection.
 
+## Meshtastic Lab API
+
+The public edge permits two Meshtastic routes owned by Signal Relay:
+
+- `GET /v1/lab/meshtastic` returns a normalized, public status document.
+- `POST /v1/lab/meshtastic/messages` submits a short message for the fixed MediumFast channel.
+
+The message route has a separate per-client limit and a 1 KiB body limit. Signal Relay must validate Turnstile, enforce its own cooldown and queue limits, and call Home Assistant only through the private Nginx listener. It must invoke only `script.meshtastic_public_broadcast`; Home Assistant, its general service API, history, events, configuration, and credentials are never public routes.
+
+Turnstile credentials and the Home Assistant access token belong exclusively to the private Signal Relay deployment. They are not variables owned by this edge repository and must not be added to `.env` here.
+
 ## Deployment
 
 Use a private deployment directory, such as `/opt/lab-inverse-proxy`. Do not commit or copy a populated `.env` into this repository.
