@@ -44,6 +44,7 @@ test("keeps the edge private, bounded, and isolates tunnel ingress from the rela
   assert.match(nginx, /listen 8081;/);
   assert.match(nginx, /location = \/api\/services\/script\/meshtastic_public_broadcast/);
   assert.match(nginx, /input_text\\\.meshtastic_public_last_/);
+  assert.match(nginx, /sensor\\\.meshtastic_d3fx_321483384_node_/);
   assert.doesNotMatch(nginx, /location ~ \^\/api\/states\/\[-_a-zA-Z0-9\.\]\+\$/);
   assert.match(nginx, /location \/ \{ return 404; \}/);
   assert.doesNotMatch(nginx, /TCPServerInterface/);
