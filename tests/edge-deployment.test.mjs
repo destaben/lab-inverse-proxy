@@ -28,7 +28,7 @@ test("keeps the edge private, bounded, and isolates tunnel ingress from the rela
   assert.match(nginx, /real_ip_recursive off;/);
   assert.doesNotMatch(nginx, /set_real_ip_from 0\.0\.0\.0\/0/);
   assert.match(nginx, /proxy_set_header X-Forwarded-For \$remote_addr;/);
-  assert.match(nginx, /limit_req_zone \$binary_remote_addr zone=public_api:10m rate=30r\/m;/);
+  assert.match(nginx, /limit_req_zone \$binary_remote_addr zone=public_api:10m rate=120r\/m;/);
   assert.match(nginx, /limit_req_zone \$binary_remote_addr zone=reticulum_lab:10m rate=5r\/m;/);
   assert.match(nginx, /limit_req_zone \$binary_remote_addr zone=meshtastic_message:10m rate=1r\/m;/);
   assert.match(nginx, /limit_conn_status 429;/);
