@@ -24,6 +24,8 @@ test("keeps the edge private, bounded, and isolates tunnel ingress from the rela
   assert.doesNotMatch(cloudflared, /^      edge:/m);
   assert.match(nginx, /server signal-relay:8787;/);
   assert.match(nginx, /server_tokens off;/);
+  assert.match(nginx, /proxy_hide_header Access-Control-Allow-Origin;/);
+  assert.match(nginx, /add_header Access-Control-Allow-Origin "https:\/\/info\.destaben\.dev" always;/);
   assert.match(nginx, /set_real_ip_from 172\.30\.250\.2\/32;/);
   assert.match(nginx, /real_ip_recursive off;/);
   assert.doesNotMatch(nginx, /set_real_ip_from 0\.0\.0\.0\/0/);
@@ -42,6 +44,7 @@ test("keeps the edge private, bounded, and isolates tunnel ingress from the rela
   assert.match(nginx, /\^\(GET\|HEAD\|POST\|OPTIONS\)\$/);
   assert.match(nginx, /limit_req zone=reticulum_lab burst=2 nodelay/);
   assert.match(nginx, /listen 8081;/);
+  assert.match(nginx, /proxy_set_header Host host\.docker\.internal;/);
   assert.match(nginx, /location = \/api\/services\/script\/meshtastic_public_broadcast/);
   assert.match(nginx, /location = \/api\/services\/script\/meshtastic_public_broadcast \{\s+if \(\$request_method !~ \^POST\$\) \{ return 405; \}\s+proxy_pass http:\/\/home_assistant;/);
   assert.match(nginx, /input_text\\\.meshtastic_public_recent_activity_\[1-5\]/);
