@@ -44,7 +44,7 @@ test("keeps the edge private, bounded, and isolates tunnel ingress from the rela
   assert.match(nginx, /listen 8081;/);
   assert.match(nginx, /location = \/api\/services\/script\/meshtastic_public_broadcast/);
   assert.match(nginx, /location = \/api\/services\/script\/meshtastic_public_broadcast \{\s+if \(\$request_method !~ \^POST\$\) \{ return 405; \}\s+proxy_pass http:\/\/home_assistant;/);
-  assert.match(nginx, /input_text\\\.meshtastic_public_last_/);
+  assert.match(nginx, /input_text\\\.meshtastic_public_recent_activity_\[1-5\]/);
   assert.match(nginx, /sensor\\\.meshtastic_d3st_2661074868_/);
   assert.doesNotMatch(nginx, /location ~ \^\/api\/states\/\[-_a-zA-Z0-9\.\]\+\$/);
   assert.match(nginx, /location \/ \{ return 404; \}/);
