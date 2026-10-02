@@ -45,6 +45,10 @@ test("keeps the edge private, bounded, and isolates tunnel ingress from the rela
   assert.match(nginx, /limit_req zone=reticulum_lab burst=2 nodelay/);
   assert.match(nginx, /listen 8081;/);
   assert.match(nginx, /proxy_set_header Host host\.docker\.internal;/);
+  assert.match(nginx, /proxy_set_header X-Forwarded-For "";/);
+  assert.match(nginx, /proxy_set_header X-Forwarded-Host "";/);
+  assert.match(nginx, /proxy_set_header X-Forwarded-Proto "";/);
+  assert.match(nginx, /proxy_set_header X-Real-IP "";/);
   assert.match(nginx, /location = \/api\/services\/script\/meshtastic_public_broadcast/);
   assert.match(nginx, /location = \/api\/services\/script\/meshtastic_public_broadcast \{\s+if \(\$request_method !~ \^POST\$\) \{ return 405; \}\s+proxy_pass http:\/\/home_assistant;/);
   assert.match(nginx, /input_text\\\.meshtastic_public_recent_activity_\[1-5\]/);
