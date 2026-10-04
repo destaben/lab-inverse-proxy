@@ -23,18 +23,17 @@ Turnstile credentials and the Home Assistant access token belong exclusively to 
 
 ## Deployment
 
-Use a private deployment directory, such as `/opt/lab-inverse-proxy`. Do not commit or copy a populated `.env` into this repository.
+Use `/opt/src/lab-inverse-proxy` for the versioned source checkout and `/opt/lab-inverse-proxy` for the private runtime directory. Do not commit or copy a populated `.env` into this repository.
 
 ```sh
-git clone https://github.com/destaben/lab-inverse-proxy.git /opt/lab-inverse-proxy
-cd /opt/lab-inverse-proxy
-cp .env.example .env
-chmod 600 .env
+git clone https://github.com/destaben/lab-inverse-proxy.git /opt/src/lab-inverse-proxy
+mkdir -p /opt/lab-inverse-proxy
+cp /opt/src/lab-inverse-proxy/.env.example /opt/lab-inverse-proxy/.env
+chmod 600 /opt/lab-inverse-proxy/.env
 docker network create destaben-edge
 docker network inspect $(docker network ls -q) --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}'
-docker compose config
-docker compose pull
-docker compose up -d
+/opt/src/lab-inverse-proxy/scripts/preflight.sh
+/opt/src/lab-inverse-proxy/scripts/deploy.sh
 ```
 
 Create a remotely managed Cloudflare Tunnel first, map `lab.destaben.dev` to `http://nginx:8080`, then place its token in the local `.env`. The token is never printed, committed, or shared with the Signal Relay repository.
@@ -47,6 +46,6 @@ Start Signal Relay from its own deployment project after it has joined the same 
 
 ```sh
 npm test
-docker compose config
+/opt/src/lab-inverse-proxy/scripts/preflight.sh
 curl http://127.0.0.1:8080/healthz
 ```

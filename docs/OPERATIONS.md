@@ -12,14 +12,13 @@ On the mini PC, preserve the existing `/opt/signal-relay/.env`, `reticulum/`, `l
 
 ```sh
 docker network create destaben-edge
-git clone https://github.com/destaben/lab-inverse-proxy.git /opt/lab-inverse-proxy
-cd /opt/lab-inverse-proxy
-cp .env.example .env
-chmod 600 .env
+git clone https://github.com/destaben/lab-inverse-proxy.git /opt/src/lab-inverse-proxy
+mkdir -p /opt/lab-inverse-proxy
+cp /opt/src/lab-inverse-proxy/.env.example /opt/lab-inverse-proxy/.env
+chmod 600 /opt/lab-inverse-proxy/.env
 docker network inspect $(docker network ls -q) --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}'
-docker compose config
-docker compose pull
-docker compose up -d
+/opt/src/lab-inverse-proxy/scripts/preflight.sh
+/opt/src/lab-inverse-proxy/scripts/deploy.sh
 ```
 
 Apply the corresponding Signal Relay Compose update so its `signal-relay` service joins `destaben-edge`; it must retain no `ports` section. Restart the relay project, then run the acceptance checks below. Do not change the Cloudflare hostname, DNS record, or tunnel mapping during this first extraction.
@@ -28,7 +27,7 @@ The edge reserves `172.30.250.0/29` for an internal-only network between Cloudfl
 
 ## Update
 
-The repository scripts use `/opt/lab-inverse-proxy` by default. They require a user in the `docker` group with `docker context show` set to `default`, validate the private deployment `.env` without printing it, preserve `destaben-edge`, and never run `docker compose down`.
+The repository scripts run from `/opt/src/lab-inverse-proxy` and deploy to `/opt/lab-inverse-proxy`. They require a user in the `docker` group with `docker context show` set to `default`, validate the private deployment `.env` without printing it, preserve `destaben-edge`, and never run `docker compose down`.
 
 ```sh
 ./scripts/preflight.sh
@@ -47,15 +46,14 @@ The rollback changes only the tracked Nginx and Compose configuration. It does n
 For a manual update, the equivalent commands are:
 
 ```sh
-cd /opt/lab-inverse-proxy
+cd /opt/src/lab-inverse-proxy
 git pull --ff-only
-docker compose config
-docker compose pull
-docker compose up -d --remove-orphans
-docker compose ps
+./scripts/preflight.sh
+./scripts/deploy.sh
+./scripts/verify.sh
 ```
 
-Do not replace `.env`. To roll back an edge revision, check out the prior Git commit, rerun `docker compose config`, and recreate the services with `docker compose up -d --remove-orphans`.
+Do not replace `.env`. To roll back an edge revision, check out the prior Git commit in `/opt/src/lab-inverse-proxy`, then run `./scripts/rollback.sh --confirm <git-ref>` from that checkout.
 
 ## Acceptance Checks
 
