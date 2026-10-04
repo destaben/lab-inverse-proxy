@@ -40,7 +40,7 @@ Create a remotely managed Cloudflare Tunnel first, map `lab.destaben.dev` to `ht
 
 Before the first `up`, confirm that `172.30.250.0/29` is absent from the preceding output. It is reserved for the private Cloudflared-to-Nginx ingress network. If it overlaps an existing Docker, LAN, or VPN subnet, stop and change the subnet and both fixed addresses together in `compose.yaml` and `nginx/nginx.conf` before deployment.
 
-Start Signal Relay from its own deployment project after it has joined the same external network. See [docs/OPERATIONS.md](docs/OPERATIONS.md) for migration, updates, rollback, and acceptance checks.
+Start Signal Relay from its own deployment project after it has joined the same external network. See [docs/OPERATIONS.md](docs/OPERATIONS.md) for clean-host setup, updates, rollback, and acceptance checks.
 
 ## Validation
 
