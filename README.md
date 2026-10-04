@@ -30,11 +30,11 @@ git clone https://github.com/destaben/lab-inverse-proxy.git /opt/lab-inverse-pro
 cd /opt/lab-inverse-proxy
 cp .env.example .env
 chmod 600 .env
-sudo docker network create destaben-edge
-sudo docker network inspect $(sudo docker network ls -q) --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}'
-sudo docker compose config
-sudo docker compose pull
-sudo docker compose up -d
+docker network create destaben-edge
+docker network inspect $(docker network ls -q) --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}'
+docker compose config
+docker compose pull
+docker compose up -d
 ```
 
 Create a remotely managed Cloudflare Tunnel first, map `lab.destaben.dev` to `http://nginx:8080`, then place its token in the local `.env`. The token is never printed, committed, or shared with the Signal Relay repository.
@@ -47,6 +47,6 @@ Start Signal Relay from its own deployment project after it has joined the same 
 
 ```sh
 npm test
-sudo docker compose config
+docker compose config
 curl http://127.0.0.1:8080/healthz
 ```

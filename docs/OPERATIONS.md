@@ -11,15 +11,15 @@ The shared external Docker network is `destaben-edge`. It is intentionally creat
 On the mini PC, preserve the existing `/opt/signal-relay/.env`, `reticulum/`, `lab-sender-reticulum/`, and the `signal-relay-data` volume. Do not copy any of these into this repository.
 
 ```sh
-sudo docker network create destaben-edge
+docker network create destaben-edge
 git clone https://github.com/destaben/lab-inverse-proxy.git /opt/lab-inverse-proxy
 cd /opt/lab-inverse-proxy
 cp .env.example .env
 chmod 600 .env
-sudo docker network inspect $(sudo docker network ls -q) --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}'
-sudo docker compose config
-sudo docker compose pull
-sudo docker compose up -d
+docker network inspect $(docker network ls -q) --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}'
+docker compose config
+docker compose pull
+docker compose up -d
 ```
 
 Apply the corresponding Signal Relay Compose update so its `signal-relay` service joins `destaben-edge`; it must retain no `ports` section. Restart the relay project, then run the acceptance checks below. Do not change the Cloudflare hostname, DNS record, or tunnel mapping during this first extraction.
@@ -28,16 +28,34 @@ The edge reserves `172.30.250.0/29` for an internal-only network between Cloudfl
 
 ## Update
 
+The repository scripts use `/opt/lab-inverse-proxy` by default. They require a user in the `docker` group with `docker context show` set to `default`, validate the private deployment `.env` without printing it, preserve `destaben-edge`, and never run `docker compose down`.
+
+```sh
+./scripts/preflight.sh
+./scripts/deploy.sh
+./scripts/verify.sh
+```
+
+To deploy an earlier Git revision, first ensure the deployment checkout is clean, then run:
+
+```sh
+./scripts/rollback.sh --confirm <git-ref>
+```
+
+The rollback changes only the tracked Nginx and Compose configuration. It does not replace `.env`, recreate the Cloudflare Tunnel, change DNS, or remove either Docker network.
+
+For a manual update, the equivalent commands are:
+
 ```sh
 cd /opt/lab-inverse-proxy
 git pull --ff-only
-sudo docker compose config
-sudo docker compose pull
-sudo docker compose up -d --remove-orphans
-sudo docker compose ps
+docker compose config
+docker compose pull
+docker compose up -d --remove-orphans
+docker compose ps
 ```
 
-Do not replace `.env`. To roll back an edge revision, check out the prior Git commit, rerun `sudo docker compose config`, and recreate the services with `sudo docker compose up -d --remove-orphans`.
+Do not replace `.env`. To roll back an edge revision, check out the prior Git commit, rerun `docker compose config`, and recreate the services with `docker compose up -d --remove-orphans`.
 
 ## Acceptance Checks
 
@@ -48,7 +66,7 @@ curl -i http://127.0.0.1:8080/v1/lab/meshtastic
 curl -i -X POST http://127.0.0.1:8080/v1/lab/meshtastic/messages
 curl -i http://127.0.0.1:8080/not-allowed
 curl -i -X PUT http://127.0.0.1:8080/v1/contact
-sudo docker compose ps
+docker compose ps
 ```
 
 The status request should be served by Signal Relay. The message request without its required payload and bot-abuse proof must be rejected by Signal Relay; Nginx only permits the route and applies its outer request limit. The unlisted route must return `404`; the `PUT` request must return `405`. Also confirm externally that `https://lab.destaben.dev` serves only documented routes and that no host ports expose Signal Relay (`8787`), Home Assistant (`8123`), or Reticulum TCP. A short burst from one client may receive `429`; this is the intended local bot-abuse control.
