@@ -6,9 +6,12 @@ This project owns Nginx, the outbound Cloudflare Tunnel, and the HTTP policy for
 
 The shared external Docker network is `destaben-edge`. It is intentionally created outside either Compose project so `docker compose down` in one project cannot remove connectivity for the other.
 
-## First Migration
+## Clean Host Setup
 
-On the mini PC, preserve the existing `/opt/signal-relay/.env`, `reticulum/`, `lab-sender-reticulum/`, and the `signal-relay-data` volume. Do not copy any of these into this repository.
+On a replacement host, restore the Signal Relay private environment, Reticulum
+material, and persistent data from their approved backup before starting the
+relay. This edge repository does not contain those private assets; do not copy
+them into this repository. The steps below install the edge from scratch.
 
 ```sh
 docker network create destaben-edge
@@ -21,7 +24,11 @@ docker network inspect $(docker network ls -q) --format '{{range .IPAM.Config}}{
 /opt/src/lab-inverse-proxy/scripts/deploy.sh
 ```
 
-Apply the corresponding Signal Relay Compose update so its `signal-relay` service joins `destaben-edge`; it must retain no `ports` section. Restart the relay project, then run the acceptance checks below. Do not change the Cloudflare hostname, DNS record, or tunnel mapping during this first extraction.
+Configure the Signal Relay deployment so its `signal-relay` service joins
+`destaben-edge`; it must retain no `ports` section. Start the relay project,
+then run the acceptance checks below. Restore the existing Cloudflare hostname,
+DNS record, and tunnel mapping from their approved operational record rather
+than creating an alternative public path.
 
 The edge reserves `172.30.250.0/29` for an internal-only network between Cloudflared and Nginx. Before starting the edge, confirm that the command above does not list that subnet and that it does not overlap a LAN or VPN route. If it does, select an unused private `/29` and update the Cloudflared address, Nginx address, and `set_real_ip_from` together. Do not add Cloudflared to `destaben-edge`.
 
