@@ -27,8 +27,23 @@ require_status() {
   }
 }
 
+# Accept either of two statuses (e.g. an upstream that may answer 503).
+require_status_in() {
+  local allowed=$1
+  shift
+  local actual
+  actual=$(curl --connect-timeout 5 --max-time 10 --silent --output /dev/null --write-out '%{http_code}' "$@" || true)
+  [[ " $allowed " == *" $actual "* ]] || {
+    printf 'ERROR: expected HTTP %s, got %s for %s\n' "$allowed" "$actual" "$*" >&2
+    exit 1
+  }
+}
+
 require_status 200 http://127.0.0.1:8080/healthz
 require_status 404 http://127.0.0.1:8080/not-allowed
 require_status 405 -X PUT http://127.0.0.1:8080/v1/contact
+# Served by Signal Relay: 200 when healthy, 503 when its upstream is degraded.
+# 404 or anything else means the route is missing or the edge is broken.
+require_status_in "200 503" http://127.0.0.1:8080/v1/lab/meshtastic-status
 docker compose -f "$deploy_compose" --env-file "$deploy_root/.env" ps
 printf 'Edge verification passed. Confirm the external hostname separately after tunnel changes.\n'

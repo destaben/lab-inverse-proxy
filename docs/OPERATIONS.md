@@ -20,6 +20,12 @@ mkdir -p /opt/lab-inverse-proxy
 cp /opt/src/lab-inverse-proxy/.env.example /opt/lab-inverse-proxy/.env
 chmod 600 /opt/lab-inverse-proxy/.env
 docker network inspect $(docker network ls -q) --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}'
+# First start only: preflight.sh requires the running lab-edge container and the
+# lab-inverse-proxy_tunnel_ingress network, which `up` creates, so start directly.
+install -m 0644 /opt/src/lab-inverse-proxy/compose.yaml /opt/lab-inverse-proxy/compose.yaml
+install -D -m 0644 /opt/src/lab-inverse-proxy/nginx/nginx.conf /opt/lab-inverse-proxy/nginx/nginx.conf
+docker compose -f /opt/lab-inverse-proxy/compose.yaml --env-file /opt/lab-inverse-proxy/.env up -d
+# Later updates:
 /opt/src/lab-inverse-proxy/scripts/preflight.sh
 /opt/src/lab-inverse-proxy/scripts/deploy.sh
 ```
@@ -34,7 +40,7 @@ The edge reserves `172.30.250.0/29` for an internal-only network between Cloudfl
 
 ## Update
 
-The repository scripts run from `/opt/src/lab-inverse-proxy` and deploy to `/opt/lab-inverse-proxy`. They require a user in the `docker` group with `docker context show` set to `default`, validate the private deployment `.env` without printing it, preserve `destaben-edge`, and never run `docker compose down`.
+The repository scripts run from `/opt/src/lab-inverse-proxy` and deploy to `/opt/lab-inverse-proxy`. They expect a user in the `docker` group with `docker context show` set to `default` but do not check it; a missing permission only fails at the first `docker` call, so run `docker context show` before the first run. They validate the private deployment `.env` without printing it, preserve `destaben-edge`, and never run `docker compose down`.
 
 ```sh
 ./scripts/preflight.sh
@@ -50,7 +56,11 @@ To deploy an earlier Git revision, first ensure the deployment checkout is clean
 
 The rollback changes only the tracked Nginx and Compose configuration. It does not replace `.env`, recreate the Cloudflare Tunnel, change DNS, or remove either Docker network.
 
-Pushes to `main` run these steps automatically through `.github/workflows/deploy-edge.yml` on the host's self-hosted runner; see the README for its host prerequisites. The manual path below remains valid.
+Pushes to `main` that change `nginx/**`, `compose.yaml`, `scripts/**`, or the workflow run these steps automatically through `.github/workflows/deploy-edge.yml` on the host's self-hosted runner (job environment `edge-production`); see the README for its host prerequisites. Docs-only commits do not redeploy. Every deployment pulls images because of `pull_policy: always`, so floating tags can change between deployments. The manual path below remains valid.
+
+Security model: the runner user must be in the `docker` group, which is equivalent to root on the host, and it must be able to read `/opt/lab-inverse-proxy/.env` (mode `0600` owned by the runner user, not merely mode `0600`). Merging to `main` is a trust decision. Enable branch protection on `main` (required pull-request review, no force-push, no bypass) and configure the `edge-production` environment with required reviewers and a deployment-branch restriction to `main`.
+
+The `/v1/lab/meshtastic-status` payload is produced by Signal Relay (`destaben.github.io`), whose contract in `docs/SIGNAL-RELAY.md` allows only a fixed whitelist; no entity IDs or topology are exposed. `scripts/verify.sh` probes it and accepts `200` or `503` from the upstream.
 
 For a manual update, the equivalent commands are:
 

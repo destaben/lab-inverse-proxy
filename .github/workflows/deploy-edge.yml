@@ -1,8 +1,12 @@
 # Deploys the edge from main on the self-hosted runner that lives on the lab host.
 #
 # Host prerequisites (see README.md, "Automatic Deployment"): the runner user
-# can run `docker` (docker group), and /opt/lab-inverse-proxy/.env already
-# exists with mode 0600. The .env never enters Git or this workflow.
+# can run `docker` (docker group) and read /opt/lab-inverse-proxy/.env (mode
+# 0600, owned by the runner user). The .env never enters Git or this workflow.
+#
+# Security: docker-group access is root-equivalent on the host, so merging to
+# main is a trust decision. Protect main and the `edge-production` environment
+# (required reviewers, deployment branches limited to main); see README.md.
 #
 # Never add pull-request triggers here: a self-hosted runner must not execute
 # code from unreviewed pull requests.
@@ -11,6 +15,12 @@ name: deploy-edge
 on:
   push:
     branches: [main]
+    # Docs-only commits must not recreate the public container.
+    paths:
+      - "nginx/**"
+      - "compose.yaml"
+      - "scripts/**"
+      - ".github/workflows/deploy-edge.yml"
   workflow_dispatch: {}
 
 permissions:
@@ -24,6 +34,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: [self-hosted]
+    environment: edge-production
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -31,13 +42,18 @@ jobs:
           persist-credentials: false
 
       - name: Validate Nginx configuration
-        # Upstream names are mapped to loopback only so `nginx -t` can resolve them.
+        # Uses the exact image reference from compose.yaml, pulled fresh like
+        # `pull_policy: always` does. Upstream names are mapped to loopback only
+        # so `nginx -t` can resolve them.
         run: |
+          image=$(awk '/^  nginx:/{f=1} f && $1=="image:"{print $2; exit}' compose.yaml)
+          test -n "$image"
+          docker pull --quiet "$image"
           docker run --rm \
             --add-host signal-relay:127.0.0.1 \
             --add-host host.docker.internal:127.0.0.1 \
             -v "$GITHUB_WORKSPACE/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" \
-            nginxinc/nginx-unprivileged:stable-alpine nginx -t
+            "$image" nginx -t
 
       - name: Deploy
         # preflight.sh, config validation, pull and `up -d --remove-orphans`
@@ -47,11 +63,12 @@ jobs:
       - name: Reload Nginx
         # deploy.sh replaces nginx.conf with a new file, which a single-file bind
         # mount does not follow, and `up -d` does not recreate the container for
-        # a config-only change. Recreate Nginx so it serves the new policy.
+        # a config-only change. Recreate Nginx so it serves the new policy, and
+        # wait for its healthcheck so Verify cannot race it.
         run: |
           docker compose -f /opt/lab-inverse-proxy/compose.yaml \
             --env-file /opt/lab-inverse-proxy/.env \
-            up -d --force-recreate --no-deps nginx
+            up -d --force-recreate --no-deps --wait --wait-timeout 90 nginx
 
       - name: Verify
         run: ./scripts/verify.sh

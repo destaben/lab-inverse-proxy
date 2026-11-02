@@ -65,7 +65,17 @@ test("deploys automatically from main on the self-hosted runner with least privi
   assert.match(workflow, /branches: \[main\]/);
   assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /runs-on: \[self-hosted\]/);
-  assert.match(workflow, /permissions:\n  contents: read/);
+  assert.match(workflow, /^permissions:\n  contents: read$/m);
+  assert.doesNotMatch(workflow, /^ {4,}permissions:/m);
+  assert.match(workflow, /environment: edge-production/);
+  assert.match(workflow, /paths:\n(?: +- .+\n)*? +- "nginx\/\*\*"/);
+  assert.match(workflow, /- "compose\.yaml"/);
+  assert.match(workflow, /- "scripts\/\*\*"/);
+  assert.match(workflow, /- "\.github\/workflows\/deploy-edge\.yml"/);
+  assert.match(workflow, /name: Validate Nginx configuration[\s\S]*compose\.yaml[\s\S]*nginx -t/);
+  assert.doesNotMatch(workflow, /nginxinc\/nginx-unprivileged:/);
+  assert.match(workflow, /name: Reload Nginx[\s\S]*up -d --force-recreate --no-deps --wait --wait-timeout 90 nginx/);
+  assert.match(workflow, /name: Verify\n\s+run: \.\/scripts\/verify\.sh/);
   assert.match(workflow, /cancel-in-progress: false/);
   assert.match(workflow, /persist-credentials: false/);
   assert.match(workflow, /scripts\/deploy\.sh/);
