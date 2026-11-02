@@ -50,6 +50,8 @@ To deploy an earlier Git revision, first ensure the deployment checkout is clean
 
 The rollback changes only the tracked Nginx and Compose configuration. It does not replace `.env`, recreate the Cloudflare Tunnel, change DNS, or remove either Docker network.
 
+Pushes to `main` run these steps automatically through `.github/workflows/deploy-edge.yml` on the host's self-hosted runner; see the README for its host prerequisites. The manual path below remains valid.
+
 For a manual update, the equivalent commands are:
 
 ```sh
@@ -68,6 +70,7 @@ Do not replace `.env`. To roll back an edge revision, check out the prior Git co
 curl -i http://127.0.0.1:8080/healthz
 curl -i http://127.0.0.1:8080/v1/contact
 curl -i http://127.0.0.1:8080/v1/lab/meshtastic
+curl -i http://127.0.0.1:8080/v1/lab/meshtastic-status
 curl -i -X POST http://127.0.0.1:8080/v1/lab/meshtastic/messages
 curl -i http://127.0.0.1:8080/not-allowed
 curl -i -X PUT http://127.0.0.1:8080/v1/contact

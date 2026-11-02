@@ -38,6 +38,7 @@ test("keeps the edge private, bounded, and isolates tunnel ingress from the rela
   assert.match(nginx, /location = \/v1\/lab\/metrics/);
   assert.match(nginx, /location = \/v1\/lab\/meshtastic \{/);
   assert.match(nginx, /location = \/v1\/lab\/meshtastic\/messages \{/);
+  assert.match(nginx, /location = \/v1\/lab\/meshtastic-status \{\s+if \(\$request_method !~ \^\(GET\|HEAD\)\$\) \{ return 405; \}\s+proxy_pass http:\/\/signal_relay;/);
   assert.match(nginx, /client_max_body_size 1k;/);
   assert.match(nginx, /limit_req zone=meshtastic_message burst=1 nodelay;/);
   assert.match(nginx, /\^\(POST\|OPTIONS\)\$/);
@@ -56,4 +57,18 @@ test("keeps the edge private, bounded, and isolates tunnel ingress from the rela
   assert.doesNotMatch(nginx, /location ~ \^\/api\/states\/\[-_a-zA-Z0-9\.\]\+\$/);
   assert.match(nginx, /location \/ \{ return 404; \}/);
   assert.doesNotMatch(nginx, /TCPServerInterface/);
+});
+
+test("deploys automatically from main on the self-hosted runner with least privilege", async () => {
+  const workflow = await readRepositoryFile(".github/workflows/deploy-edge.yml");
+
+  assert.match(workflow, /branches: \[main\]/);
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /runs-on: \[self-hosted\]/);
+  assert.match(workflow, /permissions:\n  contents: read/);
+  assert.match(workflow, /cancel-in-progress: false/);
+  assert.match(workflow, /persist-credentials: false/);
+  assert.match(workflow, /scripts\/deploy\.sh/);
+  assert.doesNotMatch(workflow, /pull_request/);
+  assert.doesNotMatch(workflow, /secrets\./);
 });

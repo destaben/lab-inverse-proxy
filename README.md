@@ -12,9 +12,10 @@ Nginx trusts `CF-Connecting-IP` only from that private Cloudflared address, appl
 
 ## Meshtastic Lab API
 
-The public edge permits two Meshtastic routes owned by Signal Relay:
+The public edge permits three Meshtastic routes owned by Signal Relay:
 
 - `GET /v1/lab/meshtastic` returns a normalized, public status document.
+- `GET /v1/lab/meshtastic-status` returns the read-only Home Assistant backed Meshtastic status. Signal Relay answers `503 meshtastic_status_unavailable` when it is not configured.
 - `POST /v1/lab/meshtastic/messages` submits a short message for the fixed MediumFast channel.
 
 The message route has a separate per-client limit and a 1 KiB body limit. Signal Relay must validate Turnstile, enforce its own cooldown and queue limits, and call Home Assistant only through the private Nginx listener. It must invoke only `script.meshtastic_public_broadcast`; Home Assistant, its general service API, history, events, configuration, and credentials are never public routes.
@@ -41,6 +42,18 @@ Create a remotely managed Cloudflare Tunnel first, map `lab.destaben.dev` to `ht
 Before the first `up`, confirm that `172.30.250.0/29` is absent from the preceding output. It is reserved for the private Cloudflared-to-Nginx ingress network. If it overlaps an existing Docker, LAN, or VPN subnet, stop and change the subnet and both fixed addresses together in `compose.yaml` and `nginx/nginx.conf` before deployment.
 
 Start Signal Relay from its own deployment project after it has joined the same external network. See [docs/OPERATIONS.md](docs/OPERATIONS.md) for clean-host setup, updates, rollback, and acceptance checks.
+
+## Automatic Deployment
+
+`.github/workflows/deploy-edge.yml` deploys on every push to `main` (and on manual `workflow_dispatch`). It runs on the self-hosted runner on the lab host (`runs-on: [self-hosted]`; no custom labels are configured), with `permissions: contents: read` and a `deploy-edge` concurrency group so deployments never overlap. It checks out the repository without persisted credentials, runs `nginx -t` in the Nginx image, runs `scripts/deploy.sh` (preflight, `docker compose config`, pull, `up -d --remove-orphans`), recreates only the Nginx container so a configuration-only change takes effect, and runs `scripts/verify.sh`. It reads no GitHub secrets. The Cloudflare token stays in `/opt/lab-inverse-proxy/.env` on the host, outside Git.
+
+Host prerequisites, done once:
+
+- Register the repository's self-hosted runner on the lab host and keep it running as a service.
+- The runner user must be able to run `docker` without `sudo`: add it to the `docker` group (`sudo usermod -aG docker <runner-user>`), then restart the runner service so the group applies. This is the same requirement the scripts already have. If you prefer `sudo`, grant a narrowly scoped sudoers rule instead and change the workflow commands to `sudo docker ...`.
+- `/opt/lab-inverse-proxy/.env` must already exist with mode `0600`, and the edge must already be running from `/opt/lab-inverse-proxy/compose.yaml` (see Deployment).
+
+Do not add `pull_request` triggers to this workflow: a self-hosted runner must not run code from unreviewed pull requests.
 
 ## Validation
 

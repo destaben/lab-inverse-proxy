@@ -1,0 +1,57 @@
+# Deploys the edge from main on the self-hosted runner that lives on the lab host.
+#
+# Host prerequisites (see README.md, "Automatic Deployment"): the runner user
+# can run `docker` (docker group), and /opt/lab-inverse-proxy/.env already
+# exists with mode 0600. The .env never enters Git or this workflow.
+#
+# Never add pull-request triggers here: a self-hosted runner must not execute
+# code from unreviewed pull requests.
+name: deploy-edge
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+# Serialize deployments; a queued run waits instead of interrupting a deploy.
+concurrency:
+  group: deploy-edge
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Validate Nginx configuration
+        # Upstream names are mapped to loopback only so `nginx -t` can resolve them.
+        run: |
+          docker run --rm \
+            --add-host signal-relay:127.0.0.1 \
+            --add-host host.docker.internal:127.0.0.1 \
+            -v "$GITHUB_WORKSPACE/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" \
+            nginxinc/nginx-unprivileged:stable-alpine nginx -t
+
+      - name: Deploy
+        # preflight.sh, config validation, pull and `up -d --remove-orphans`
+        # are all done by deploy.sh against /opt/lab-inverse-proxy.
+        run: ./scripts/deploy.sh
+
+      - name: Reload Nginx
+        # deploy.sh replaces nginx.conf with a new file, which a single-file bind
+        # mount does not follow, and `up -d` does not recreate the container for
+        # a config-only change. Recreate Nginx so it serves the new policy.
+        run: |
+          docker compose -f /opt/lab-inverse-proxy/compose.yaml \
+            --env-file /opt/lab-inverse-proxy/.env \
+            up -d --force-recreate --no-deps nginx
+
+      - name: Verify
+        run: ./scripts/verify.sh
