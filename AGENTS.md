@@ -8,6 +8,8 @@ This repository owns the private HTTP edge for the Signal Relay laboratory. It d
 
 - `compose.yaml` runs the Nginx edge and Cloudflare Tunnel on the shared Docker network.
 - `nginx/nginx.conf` is the sole HTTP policy point for the public laboratory API.
+- `scripts/` holds the preflight, deploy, verify, and rollback scripts.
+- `.github/workflows/deploy-edge.yml` deploys from `main` on the self-hosted runner; see README Automatic Deployment.
 - `.env.example` documents the only deployment variable owned here; a populated `.env` remains private.
 - `docs/OPERATIONS.md` defines host installation, updates, rollback, and acceptance checks.
 

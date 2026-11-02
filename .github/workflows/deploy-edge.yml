@@ -1,0 +1,97 @@
+# Deploys the edge from main on the self-hosted runner that lives on the lab host.
+#
+# Host prerequisites (see README.md, "Automatic Deployment"): the runner user
+# can run `docker` (docker group) and read /opt/lab-inverse-proxy/.env (mode
+# 0600, owned by the runner user). The .env never enters Git or this workflow.
+#
+# Security: docker-group access is root-equivalent on the host, so merging to
+# main is a trust decision. Protect main and the `edge-production` environment
+# (required reviewers, deployment branches limited to main); see README.md.
+#
+# Never add pull-request triggers here: a self-hosted runner must not execute
+# code from unreviewed pull requests.
+name: deploy-edge
+
+on:
+  push:
+    branches: [main]
+    # Docs-only commits must not recreate the public container.
+    paths:
+      - "nginx/**"
+      - "compose.yaml"
+      - "scripts/**"
+      - ".github/workflows/deploy-edge.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+# Serialize deployments; a queued run waits instead of interrupting a deploy.
+concurrency:
+  group: deploy-edge
+  cancel-in-progress: false
+
+jobs:
+  # Runs on a GitHub-hosted runner, never on the lab host.
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: npm test
+
+  deploy:
+    needs: test
+    # workflow_dispatch can select any branch; only main may deploy.
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted]
+    environment: edge-production
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Validate Nginx configuration
+        # Uses the exact image reference from compose.yaml, pulled fresh like
+        # `pull_policy: always` does. Upstream names are mapped to loopback only
+        # so `nginx -t` can resolve them.
+        run: |
+          image=$(CLOUDFLARE_TUNNEL_TOKEN=unused docker compose -f compose.yaml config --images nginx)
+          test -n "$image"
+          docker pull --quiet "$image"
+          docker run --rm \
+            --add-host signal-relay:127.0.0.1 \
+            --add-host host.docker.internal:127.0.0.1 \
+            -v "$GITHUB_WORKSPACE/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" \
+            "$image" nginx -t
+
+      - name: Back up current deployment
+        id: backup
+        # Snapshot of the live files, used only to restore them if this run fails.
+        run: |
+          mkdir -p "$RUNNER_TEMP/edge-backup/nginx"
+          cp /opt/lab-inverse-proxy/compose.yaml "$RUNNER_TEMP/edge-backup/compose.yaml"
+          cp /opt/lab-inverse-proxy/nginx/nginx.conf "$RUNNER_TEMP/edge-backup/nginx/nginx.conf"
+
+      - name: Deploy
+        # preflight.sh, config validation, pull, `up -d --remove-orphans` and the
+        # Nginx recreate (with --wait) are all done by deploy.sh against
+        # /opt/lab-inverse-proxy.
+        run: ./scripts/deploy.sh
+
+      - name: Verify
+        run: ./scripts/verify.sh
+
+      - name: Restore previous configuration after failure
+        # Best effort: put the previous files back and recreate Nginx. The run
+        # still ends as failed. A job timeout cancels the job and skips this step.
+        if: failure() && steps.backup.outcome == 'success'
+        run: |
+          install -m 0644 "$RUNNER_TEMP/edge-backup/compose.yaml" /opt/lab-inverse-proxy/compose.yaml
+          install -m 0644 "$RUNNER_TEMP/edge-backup/nginx/nginx.conf" /opt/lab-inverse-proxy/nginx/nginx.conf
+          docker compose -f /opt/lab-inverse-proxy/compose.yaml \
+            --env-file /opt/lab-inverse-proxy/.env \
+            up -d --force-recreate --no-deps --wait --wait-timeout 90 nginx
