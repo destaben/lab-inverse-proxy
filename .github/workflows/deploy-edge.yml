@@ -58,15 +58,21 @@ jobs:
         # Uses the exact image reference from compose.yaml, pulled fresh like
         # `pull_policy: always` does. Upstream names are mapped to loopback only
         # so `nginx -t` can resolve them.
+        # The file is copied into the container rather than bind-mounted: the
+        # runner is itself a container, so a bind-mount source path would be
+        # resolved by the host's Docker daemon, where this workspace file does
+        # not exist.
         run: |
           image=$(CLOUDFLARE_TUNNEL_TOKEN=unused docker compose -f compose.yaml config --images nginx)
           test -n "$image"
           docker pull --quiet "$image"
-          docker run --rm \
+          cid=$(docker create \
             --add-host signal-relay:127.0.0.1 \
             --add-host host.docker.internal:127.0.0.1 \
-            -v "$GITHUB_WORKSPACE/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" \
-            "$image" nginx -t
+            "$image" nginx -t)
+          trap 'docker rm -f "$cid" >/dev/null' EXIT
+          docker cp nginx/nginx.conf "$cid:/etc/nginx/nginx.conf"
+          docker start -a "$cid"
 
       - name: Back up current deployment
         id: backup
