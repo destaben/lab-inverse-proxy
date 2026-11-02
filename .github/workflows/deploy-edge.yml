@@ -32,12 +32,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Runs on a GitHub-hosted runner, never on the lab host.
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: npm test
+
   deploy:
+    needs: test
+    # workflow_dispatch can select any branch; only main may deploy.
+    if: github.ref == 'refs/heads/main'
     runs-on: [self-hosted]
     environment: edge-production
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
@@ -46,7 +59,7 @@ jobs:
         # `pull_policy: always` does. Upstream names are mapped to loopback only
         # so `nginx -t` can resolve them.
         run: |
-          image=$(awk '/^  nginx:/{f=1} f && $1=="image:"{print $2; exit}' compose.yaml)
+          image=$(CLOUDFLARE_TUNNEL_TOKEN=unused docker compose -f compose.yaml config --images nginx)
           test -n "$image"
           docker pull --quiet "$image"
           docker run --rm \
@@ -55,20 +68,30 @@ jobs:
             -v "$GITHUB_WORKSPACE/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" \
             "$image" nginx -t
 
-      - name: Deploy
-        # preflight.sh, config validation, pull and `up -d --remove-orphans`
-        # are all done by deploy.sh against /opt/lab-inverse-proxy.
-        run: ./scripts/deploy.sh
-
-      - name: Reload Nginx
-        # deploy.sh replaces nginx.conf with a new file, which a single-file bind
-        # mount does not follow, and `up -d` does not recreate the container for
-        # a config-only change. Recreate Nginx so it serves the new policy, and
-        # wait for its healthcheck so Verify cannot race it.
+      - name: Back up current deployment
+        id: backup
+        # Snapshot of the live files, used only to restore them if this run fails.
         run: |
-          docker compose -f /opt/lab-inverse-proxy/compose.yaml \
-            --env-file /opt/lab-inverse-proxy/.env \
-            up -d --force-recreate --no-deps --wait --wait-timeout 90 nginx
+          mkdir -p "$RUNNER_TEMP/edge-backup/nginx"
+          cp /opt/lab-inverse-proxy/compose.yaml "$RUNNER_TEMP/edge-backup/compose.yaml"
+          cp /opt/lab-inverse-proxy/nginx/nginx.conf "$RUNNER_TEMP/edge-backup/nginx/nginx.conf"
+
+      - name: Deploy
+        # preflight.sh, config validation, pull, `up -d --remove-orphans` and the
+        # Nginx recreate (with --wait) are all done by deploy.sh against
+        # /opt/lab-inverse-proxy.
+        run: ./scripts/deploy.sh
 
       - name: Verify
         run: ./scripts/verify.sh
+
+      - name: Restore previous configuration after failure
+        # Best effort: put the previous files back and recreate Nginx. The run
+        # still ends as failed. A job timeout cancels the job and skips this step.
+        if: failure() && steps.backup.outcome == 'success'
+        run: |
+          install -m 0644 "$RUNNER_TEMP/edge-backup/compose.yaml" /opt/lab-inverse-proxy/compose.yaml
+          install -m 0644 "$RUNNER_TEMP/edge-backup/nginx/nginx.conf" /opt/lab-inverse-proxy/nginx/nginx.conf
+          docker compose -f /opt/lab-inverse-proxy/compose.yaml \
+            --env-file /opt/lab-inverse-proxy/.env \
+            up -d --force-recreate --no-deps --wait --wait-timeout 90 nginx

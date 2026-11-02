@@ -68,17 +68,30 @@ test("deploys automatically from main on the self-hosted runner with least privi
   assert.match(workflow, /^permissions:\n  contents: read$/m);
   assert.doesNotMatch(workflow, /^ {4,}permissions:/m);
   assert.match(workflow, /environment: edge-production/);
-  assert.match(workflow, /paths:\n(?: +- .+\n)*? +- "nginx\/\*\*"/);
-  assert.match(workflow, /- "compose\.yaml"/);
-  assert.match(workflow, /- "scripts\/\*\*"/);
-  assert.match(workflow, /- "\.github\/workflows\/deploy-edge\.yml"/);
-  assert.match(workflow, /name: Validate Nginx configuration[\s\S]*compose\.yaml[\s\S]*nginx -t/);
+  assert.match(workflow, /paths:\n +- "nginx\/\*\*"\n +- "compose\.yaml"\n +- "scripts\/\*\*"\n +- "\.github\/workflows\/deploy-edge\.yml"\n/);
+  assert.match(workflow, /if: github\.ref == 'refs\/heads\/main'/);
+  assert.match(workflow, /deploy:\n    needs: test/);
+  assert.match(workflow, /test:\n    runs-on: ubuntu-latest[\s\S]*run: npm test/);
+  assert.match(workflow, /actions\/checkout@[0-9a-f]{40} # v4/);
+  assert.doesNotMatch(workflow, /actions\/checkout@v/);
+  assert.match(workflow, /name: Validate Nginx configuration[\s\S]*config --images nginx[\s\S]*nginx -t/);
   assert.doesNotMatch(workflow, /nginxinc\/nginx-unprivileged:/);
-  assert.match(workflow, /name: Reload Nginx[\s\S]*up -d --force-recreate --no-deps --wait --wait-timeout 90 nginx/);
+  assert.match(workflow, /name: Deploy\n[\s\S]*run: \.\/scripts\/deploy\.sh/);
   assert.match(workflow, /name: Verify\n\s+run: \.\/scripts\/verify\.sh/);
+  assert.match(workflow, /if: failure\(\) && steps\.backup\.outcome == 'success'[\s\S]*up -d --force-recreate --no-deps --wait --wait-timeout 90 nginx/);
   assert.match(workflow, /cancel-in-progress: false/);
   assert.match(workflow, /persist-credentials: false/);
-  assert.match(workflow, /scripts\/deploy\.sh/);
   assert.doesNotMatch(workflow, /pull_request/);
   assert.doesNotMatch(workflow, /secrets\./);
+});
+
+test("deploy.sh recreates Nginx and verify.sh probes the status route strictly", async () => {
+  const [deploy, verify] = await Promise.all([
+    readRepositoryFile("scripts/deploy.sh"),
+    readRepositoryFile("scripts/verify.sh"),
+  ]);
+
+  assert.match(deploy, /up -d --force-recreate --no-deps --wait --wait-timeout 90 nginx/);
+  assert.match(verify, /require_meshtastic_status http:\/\/127\.0\.0\.1:8080\/v1\/lab\/meshtastic-status/);
+  assert.match(verify, /"503" \]\] && grep -q 'meshtastic_status_unavailable'/);
 });

@@ -36,7 +36,7 @@ then run the acceptance checks below. Restore the existing Cloudflare hostname,
 DNS record, and tunnel mapping from their approved operational record rather
 than creating an alternative public path.
 
-The edge reserves `172.30.250.0/29` for an internal-only network between Cloudflared and Nginx. Before starting the edge, confirm that the command above does not list that subnet and that it does not overlap a LAN or VPN route. If it does, select an unused private `/29` and update the Cloudflared address, Nginx address, and `set_real_ip_from` together. Do not add Cloudflared to `destaben-edge`.
+The edge reserves `172.30.250.0/29` for an internal-only network between Cloudflared and Nginx. Before starting the edge, confirm that the command above does not list that subnet and that it does not overlap a LAN or VPN route. If it does, select an unused private `/29` and update the subnet and both fixed addresses in `compose.yaml` and the Cloudflared address in `set_real_ip_from` in `nginx/nginx.conf` together. Do not add Cloudflared to `destaben-edge`.
 
 ## Update
 
@@ -56,11 +56,9 @@ To deploy an earlier Git revision, first ensure the deployment checkout is clean
 
 The rollback changes only the tracked Nginx and Compose configuration. It does not replace `.env`, recreate the Cloudflare Tunnel, change DNS, or remove either Docker network.
 
-Pushes to `main` that change `nginx/**`, `compose.yaml`, `scripts/**`, or the workflow run these steps automatically through `.github/workflows/deploy-edge.yml` on the host's self-hosted runner (job environment `edge-production`); see the README for its host prerequisites. Docs-only commits do not redeploy. Every deployment pulls images because of `pull_policy: always`, so floating tags can change between deployments. The manual path below remains valid.
+Pushes to `main` that change `nginx/**`, `compose.yaml`, `scripts/**`, or the workflow run these steps automatically through `.github/workflows/deploy-edge.yml` on the host's self-hosted runner. Docs-only commits do not redeploy. Each qualifying push recreates Nginx, so expect a short public outage. For the runner's host prerequisites, security model (docker group is host root; branch protection and the `edge-production` environment), test gate, automatic restore on failure, and `pull_policy: always` behavior, see [README.md](../README.md#automatic-deployment), which is the source of truth. `scripts/deploy.sh` itself recreates Nginx (`up -d --force-recreate --no-deps --wait`), so the manual path and `scripts/rollback.sh` also apply an Nginx policy change.
 
-Security model: the runner user must be in the `docker` group, which is equivalent to root on the host, and it must be able to read `/opt/lab-inverse-proxy/.env` (mode `0600` owned by the runner user, not merely mode `0600`). Merging to `main` is a trust decision. Enable branch protection on `main` (required pull-request review, no force-push, no bypass) and configure the `edge-production` environment with required reviewers and a deployment-branch restriction to `main`.
-
-The `/v1/lab/meshtastic-status` payload is produced by Signal Relay (`destaben.github.io`), whose contract in `docs/SIGNAL-RELAY.md` allows only a fixed whitelist; no entity IDs or topology are exposed. `scripts/verify.sh` probes it and accepts `200` or `503` from the upstream.
+The `/v1/lab/meshtastic-status` payload is produced by Signal Relay (`destaben.github.io`), whose contract in [docs/SIGNAL-RELAY.md](https://github.com/destaben/destaben.github.io/blob/main/docs/SIGNAL-RELAY.md) allows only a fixed whitelist; no entity IDs or topology are exposed. `scripts/verify.sh` probes it and accepts `200`, or `503` only when the body contains `meshtastic_status_unavailable`.
 
 For a manual update, the equivalent commands are:
 
@@ -80,7 +78,7 @@ Do not replace `.env`. To roll back an edge revision, check out the prior Git co
 curl -i http://127.0.0.1:8080/healthz
 curl -i http://127.0.0.1:8080/v1/contact
 curl -i http://127.0.0.1:8080/v1/lab/meshtastic
-curl -i http://127.0.0.1:8080/v1/lab/meshtastic-status
+curl -i http://127.0.0.1:8080/v1/lab/meshtastic-status   # 200, or 503 meshtastic_status_unavailable; 404 means the route is missing
 curl -i -X POST http://127.0.0.1:8080/v1/lab/meshtastic/messages
 curl -i http://127.0.0.1:8080/not-allowed
 curl -i -X PUT http://127.0.0.1:8080/v1/contact
