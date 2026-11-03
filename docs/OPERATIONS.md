@@ -76,7 +76,11 @@ Do not replace `.env`. To roll back an edge revision, check out the prior Git co
 
 ## Printer Laboratory
 
-Set `PRINTER_HOST` in the private `.env` to the LAN address of the host that serves Moonraker on HTTP port 80. Keep the value out of Git and out of any shared output. An empty value leaves the printer routes failing closed with `502`.
+Set `PRINTER_HOST` in the private `.env` to the LAN address of the host that serves Moonraker on HTTP port 80. It must be a bare IPv4 address (no hostname, quotes, spaces, or inline comment) because `extra_hosts` needs a literal IP; `scripts/preflight.sh` rejects anything else before a deployment can fail, without printing the value. Keep the value out of Git and out of any shared output. An empty value leaves the printer routes failing closed with `502`.
+
+The Cloudflare tunnel's public hostname mapping lives outside this repository. It must never map `:8082`: `cloudflared` can reach the Nginx container on `tunnel_ingress`, so only that remote configuration keeps the printer listener off the public internet. The `:8082` allowlist still limits what that path could do.
+
+Files whose names contain characters outside letters, digits, `_`, `+`, `-`, `.` and space (for example parentheses or commas) are deliberately not served by `:8082`; the relay shows the idle animation for them instead of a model.
 
 `extra_hosts` is applied only when the container is created, so recreate the Nginx service after changing it. The automatic deployment (`scripts/deploy.sh`) already recreates Nginx with this `.env`, so a merge to `main` also picks up a new value; to apply it without a deployment:
 
@@ -96,12 +100,16 @@ curl -i http://127.0.0.1:8080/v1/lab/meshtastic-status   # 200, or 503 meshtasti
 curl -i -X POST http://127.0.0.1:8080/v1/lab/meshtastic/messages
 curl -i http://127.0.0.1:8080/not-allowed
 curl -i -X PUT http://127.0.0.1:8080/v1/contact
+curl -i -X POST http://127.0.0.1:8080/v1/lab/printer   # 405
+curl -i "http://127.0.0.1:8080/v1/lab/printer/model/0123456789abcdef0123456789abcdef"   # served by Signal Relay (not 404)
 docker compose ps
 ```
 
 The status request should be served by Signal Relay. The message request without its required payload and bot-abuse proof must be rejected by Signal Relay; Nginx only permits the route and applies its outer request limit. The unlisted route must return `404`; the `PUT` request must return `405`. Also confirm externally that `https://lab.destaben.dev` serves only documented routes and that no host ports expose Signal Relay (`8787`), the printer listener (`8082`), Home Assistant (`8123`), or Reticulum TCP. A short burst from one client may receive `429`; this is the intended local bot-abuse control.
 
 Signal Relay reaches Home Assistant through Nginx's private listener. It can read the Meshtastic state inventory to select one complete non-gateway neighbor automatically, read documented state entities, and call only `script.meshtastic_public_broadcast`; attempts to reach a different Home Assistant service, history, events, logbook, or configuration route must return `404` or `405`. The private listener has no host port or Cloudflare ingress. Keep the Signal Relay Turnstile secret and Home Assistant access token only in its private deployment environment.
+
+The public printer routes (`/v1/lab/printer`, `/v1/lab/printer/thumbnail`, `/v1/lab/printer/model/<32 lowercase hex>`) return Signal Relay's response for `GET`/`HEAD`, `405` for other methods, and `502` when the relay is unavailable. See the route list in [README.md](../README.md).
 
 Printer listener checks run on the edge host. They are read-only: the only upstream request is the job-status query, and no check downloads G-code or sends a command to the printer.
 

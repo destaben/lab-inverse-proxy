@@ -7,6 +7,8 @@ services:
       - "127.0.0.1:8080:8080"
     networks:
       edge:
+      # cloudflared can reach this container, so it can reach the internal printer listener too.
+      # Keep that listener out of the Cloudflare tunnel's public hostname mapping (managed outside this repo).
       tunnel_ingress:
         ipv4_address: 172.30.250.3
     extra_hosts:

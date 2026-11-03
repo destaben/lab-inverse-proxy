@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 const readRepositoryFile = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
@@ -130,9 +133,14 @@ test("exposes the printer laboratory through a bounded, GET-only internal listen
   assert.doesNotMatch(printer, /proxy_set_header Host \$host;/);
   assert.match(printer, /proxy_set_header Authorization "";/);
   assert.match(printer, /proxy_set_header Cookie "";/);
+  assert.match(printer, /proxy_set_header X-Api-Key "";/, "Moonraker also accepts its API key in X-Api-Key");
 
   // The printer host is resource-constrained: serialise and throttle G-code downloads, and drop idle clients.
   assert.match(nginx, /limit_conn_zone \$server_name zone=printer_download:1m;/);
+  assert.match(nginx, /limit_conn_zone \$server_name zone=printer_status:1m;/);
+  for (const header of ["= /printer/objects/query", "= /server/files/metadata"]) {
+    assert.match(locationBlock(printer, header), /limit_conn printer_status 2;/, `${header}: bounded concurrency`);
+  }
   assert.match(locationBlock(printer, downloads), /limit_conn printer_download 1;/);
   assert.match(locationBlock(printer, downloads), /limit_rate 1m;/);
   assert.match(printer, /proxy_max_temp_file_size 0;/);
@@ -153,6 +161,48 @@ test("publishes only the documented printer routes on the public listener", asyn
     assert.match(location, /proxy_pass http:\/\/signal_relay;/, `${header}: relay upstream`);
   }
   assert.doesNotMatch(publicBlock, /proxy_pass http:\/\/printer/, "the public listener never reaches Moonraker");
+});
+
+// extra_hosts needs a literal IP: a hostname, comment or stray whitespace in PRINTER_HOST would make
+// Docker reject the Nginx recreate and fail the whole deployment, so preflight must catch it first.
+test("preflight rejects a PRINTER_HOST that Docker would refuse in extra_hosts", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "printer-host-"));
+  const check = async (envContent) => {
+    const envFile = join(dir, ".env");
+    await writeFile(envFile, envContent);
+    return spawnSync("bash", [new URL("../scripts/check-printer-host.sh", import.meta.url).pathname, envFile], { encoding: "utf8" });
+  };
+  try {
+    for (const valid of ["PRINTER_HOST=\n", "PRINTER_HOST=203.0.113.7\n", "OTHER=x\n", "PRINTER_HOST=10.1.2.3\nOTHER=x\n"]) {
+      assert.equal((await check(valid)).status, 0, `accepts ${JSON.stringify(valid)}`);
+    }
+    for (const invalid of [
+      "PRINTER_HOST=printer.local\n",
+      "PRINTER_HOST=10.1.2.3 # printer\n",
+      "PRINTER_HOST= 10.1.2.3\n",
+      "PRINTER_HOST=10.1.2.3 \n",
+      "PRINTER_HOST=10.1.2\n",
+      "PRINTER_HOST=10.1.2.300\n",
+      "PRINTER_HOST=10.1.2.3.4\n",
+      "PRINTER_HOST=\"10.1.2.3\"\n",
+      "PRINTER_HOST=::1\n",
+    ]) {
+      const result = await check(invalid);
+      assert.equal(result.status, 1, `rejects ${JSON.stringify(invalid)}`);
+      assert.doesNotMatch(result.stderr, /10\.1\.2|printer\.local/, "the value must not be echoed");
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+  assert.match(await readRepositoryFile("scripts/preflight.sh"), /check-printer-host\.sh/);
+});
+
+test("documents acceptance checks for the public printer routes and the tunnel boundary", async () => {
+  const [operations, compose] = await Promise.all([readRepositoryFile("docs/OPERATIONS.md"), readRepositoryFile("compose.yaml")]);
+  assert.match(operations, /-X POST http:\/\/127\.0\.0\.1:8080\/v1\/lab\/printer\b/);
+  assert.match(operations, /\/v1\/lab\/printer\/model\/0123456789abcdef0123456789abcdef/);
+  assert.match(operations, /must not map `?:8082`?|never map `?:8082`?/i);
+  assert.match(compose, /# .*printer listener/, "compose must warn that the tunnel must not map the printer listener");
 });
 
 test("keeps the printer address and host details out of tracked files", async () => {
