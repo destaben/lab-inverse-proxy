@@ -9,6 +9,7 @@ applyTo: "compose.yaml,nginx/**,docs/**,README.md,tests/**,.env.example"
 - Allowlist fixed public API routes, retain the default `404`, and preserve rate, connection, body-size, and timeout bounds.
 - Trust `CF-Connecting-IP` only because Nginx has no public host binding and Cloudflare Tunnel is the sole public ingress.
 - The internal `8081` listener has no host port or Cloudflare ingress and may proxy only the fixed Home Assistant API reads needed by Signal Relay.
+- The internal `8082` listener has no host port or Cloudflare ingress and may proxy only the exact `GET`/`HEAD` Moonraker reads needed by the printer laboratory. Moonraker trusts its whole LAN (G-code, emergency stop, file deletion), so this allowlist is the relay's only path to it: never add a write method, a wildcard path, or a client-controlled `Host`, and keep the printer address in the private `.env` (`PRINTER_HOST`), never in Git.
 - Keep containers unprivileged, read-only, capability-dropped, and compatible with the supported Signal Relay image on `linux/amd64` and `linux/arm64`.
 - Never commit a populated `.env`, tunnel token, identities, private topology, Home Assistant settings, Telegram values, or other credentials.
 - Validate Compose with an ignored local `.env` and run `npm test` after edge configuration changes.

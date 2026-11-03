@@ -40,3 +40,111 @@ test("keeps the edge private, bounded, and isolates tunnel ingress from the rela
   assert.match(nginx, /location \/ \{ return 404; \}/);
   assert.doesNotMatch(nginx, /TCPServerInterface/);
 });
+
+const serverBlock = (nginx, listenPort) => {
+  const listen = nginx.match(new RegExp(`^\\s*listen ${listenPort};`, "m"));
+  assert.ok(listen, `no server listens on ${listenPort}`);
+  const open = nginx.lastIndexOf("server {", listen.index);
+  let depth = 0;
+  for (let index = nginx.indexOf("{", open); index < nginx.length; index += 1) {
+    if (nginx[index] === "{") depth += 1;
+    if (nginx[index] === "}" && --depth === 0) return nginx.slice(open, index + 1);
+  }
+  throw new Error(`unterminated server block for ${listenPort}`);
+};
+
+// Greedy up to the last " {" on the line, so regex quantifiers such as {2,4} stay inside the pattern.
+const locationsOf = (block) => [...block.matchAll(/^\s*location\s+(.+) \{(?=\s|$)/gm)].map((match) => match[1]);
+
+// One location, from its header line to its closing brace.
+const locationBlock = (block, header) => {
+  const start = block.indexOf(`location ${header} {`);
+  assert.notEqual(start, -1, `missing location ${header}`);
+  return block.slice(start, block.indexOf("\n    }", start));
+};
+
+// Decoded $uri carries a literal space (never %20); PCRE "$" would also accept a trailing newline, so use \z.
+const SAFE_NAME = String.raw`(?:[-A-Za-z0-9_+ ]|\.(?!\.))+`;
+const SAFE_ARG_NAME = String.raw`(?:[-A-Za-z0-9_+]|%20|\.(?!\.))+`;
+
+test("exposes the printer laboratory through a bounded, GET-only internal listener", async () => {
+  const [compose, nginx, envExample] = await Promise.all([
+    readRepositoryFile("compose.yaml"),
+    readRepositoryFile("nginx/nginx.conf"),
+    readRepositoryFile(".env.example"),
+  ]);
+  const printer = serverBlock(nginx, 8082);
+
+  assert.match(nginx, /upstream printer \{\s*server printer\.internal:80;\s*\}/);
+  assert.doesNotMatch(compose, /8082/, "the printer listener must publish no host port");
+  assert.match(compose, /"printer\.internal:\$\{PRINTER_HOST:-127\.0\.0\.1\}"/);
+  assert.match(envExample, /^PRINTER_HOST=$/m);
+
+  // Moonraker trusts the LAN: it can run G-code, e-stop and delete files, so only these reads may pass.
+  const thumbnails = String.raw`~ "^/server/files/gcodes/\.thumbs/${SAFE_NAME}-[0-9]{2,4}x[0-9]{2,4}\.png\z"`;
+  const downloads = String.raw`~ "^/server/files/gcodes/${SAFE_NAME}\.gcode\z"`;
+  assert.deepEqual(locationsOf(printer), ["= /printer/objects/query", "= /server/files/metadata", thumbnails, downloads, "/"]);
+  assert.doesNotMatch(printer, /%20.*\{\s*$/m, "location regexes match the decoded URI, so %20 never appears there");
+  assert.doesNotMatch(printer, /\$"/, "end anchors must be \\z, not $");
+
+  for (const header of ["= /printer/objects/query", "= /server/files/metadata", thumbnails, downloads]) {
+    const location = locationBlock(printer, header);
+    assert.match(location, /if \(\$request_method !~ \^\(GET\|HEAD\)\$\) \{ return 405; \}/, `${header}: method guard`);
+    assert.match(location, /proxy_pass http:\/\/printer;/, `${header}: must proxy to the printer upstream only`);
+    assert.doesNotMatch(location, /signal_relay|home_assistant/);
+  }
+  assert.ok(
+    locationBlock(printer, "= /printer/objects/query").includes('if ($args != "print_stats&virtual_sdcard") { return 404; }'),
+  );
+  assert.ok(
+    locationBlock(printer, "= /server/files/metadata").includes(String.raw`if ($args !~ "^filename=${SAFE_ARG_NAME}\.gcode\z") { return 404; }`),
+  );
+  for (const header of [thumbnails, downloads]) {
+    assert.ok(locationBlock(printer, header).includes('if ($args != "") { return 404; }'), "no query string allowed");
+  }
+  assert.match(printer, /location \/ \{ return 404; \}/);
+  assert.doesNotMatch(printer, /gcode\/script|emergency_stop|firmware_restart|machine\/|access\/|websocket|\bPOST\b|\bDELETE\b|Upgrade/);
+
+  // Validation runs on the normalised URI but the raw URI is forwarded: keep slashes unmerged,
+  // fix the Host (Traefik routes on it), and never forward client credentials.
+  assert.match(printer, /merge_slashes off;/);
+  assert.match(printer, /proxy_set_header Host printer\.internal;/);
+  assert.doesNotMatch(printer, /proxy_set_header Host \$host;/);
+  assert.match(printer, /proxy_set_header Authorization "";/);
+  assert.match(printer, /proxy_set_header Cookie "";/);
+
+  // The printer host is resource-constrained: serialise and throttle G-code downloads, and drop idle clients.
+  assert.match(nginx, /limit_conn_zone \$server_name zone=printer_download:1m;/);
+  assert.match(locationBlock(printer, downloads), /limit_conn printer_download 1;/);
+  assert.match(locationBlock(printer, downloads), /limit_rate 1m;/);
+  assert.match(printer, /proxy_max_temp_file_size 0;/);
+  assert.match(printer, /client_max_body_size 1k;/);
+  assert.match(printer, /keepalive_timeout 5s;/);
+  assert.match(printer, /client_header_timeout 5s;/);
+  assert.match(printer, /client_body_timeout 5s;/);
+});
+
+test("publishes only the documented printer routes on the public listener", async () => {
+  const nginx = await readRepositoryFile("nginx/nginx.conf");
+  const publicBlock = serverBlock(nginx, 8080);
+  const model = String.raw`~ "^/v1/lab/printer/model/[a-f0-9]{32}\z"`;
+
+  for (const header of ["= /v1/lab/printer", "= /v1/lab/printer/thumbnail", model]) {
+    const location = locationBlock(publicBlock, header);
+    assert.match(location, /if \(\$request_method !~ \^\(GET\|HEAD\)\$\) \{ return 405; \}/, `${header}: method guard`);
+    assert.match(location, /proxy_pass http:\/\/signal_relay;/, `${header}: relay upstream`);
+  }
+  assert.doesNotMatch(publicBlock, /proxy_pass http:\/\/printer/, "the public listener never reaches Moonraker");
+});
+
+test("keeps the printer address and host details out of tracked files", async () => {
+  const files = await Promise.all(
+    ["compose.yaml", "nginx/nginx.conf", ".env.example", "README.md", "docs/OPERATIONS.md", "AGENTS.md"].map(readRepositoryFile),
+  );
+  // Any RFC 1918 address, except the documented 172.30.250.0/29 edge-internal network.
+  const privateAddress = /\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.(?!250\.)\d{1,3}\.\d{1,3})\b/;
+  for (const content of files) {
+    assert.doesNotMatch(content, privateAddress);
+    assert.doesNotMatch(content, /Raspberry|\bPi\b/);
+  }
+});
