@@ -7,16 +7,17 @@ This repository owns the private HTTP edge for the Signal Relay laboratory. It d
 ## Structure
 
 - `compose.yaml` runs the Nginx edge and Cloudflare Tunnel on the shared Docker network.
-- `nginx/nginx.conf` is the sole HTTP policy point for the public laboratory API.
+- `nginx/nginx.conf` is the sole HTTP policy point for the public laboratory API and the internal `:8082` Moonraker read allowlist.
 - `scripts/` holds the preflight, deploy, verify, and rollback scripts.
 - `.github/workflows/deploy-edge.yml` deploys from `main` on the self-hosted runner; see README Automatic Deployment.
-- `.env.example` documents the only deployment variable owned here; a populated `.env` remains private.
+- `.env.example` documents the deployment variables owned here (`CLOUDFLARE_TUNNEL_TOKEN`, `PRINTER_HOST`); a populated `.env` remains private.
 - `docs/OPERATIONS.md` defines host installation, updates, rollback, and acceptance checks.
 
 ## Working Rules
 
 - Keep Nginx bound only to `127.0.0.1:8080` for host diagnostics. Cloudflare Tunnel is the only public HTTP path.
 - Keep the shared Docker network external and named `destaben-edge`. The Signal Relay joins it from its own Compose project; do not publish its port or create a host network path to it.
+- Keep the `:8082` printer listener internal: no host port, no Cloudflare ingress, `GET`/`HEAD` only, exact allowlisted paths. Moonraker trusts its LAN, so never add a write method, wildcard path, or client-controlled `Host`. The printer address lives only in the private `PRINTER_HOST`.
 - Allowlist public routes explicitly and return `404` for everything else. Preserve body, connection, request, and laboratory POST limits.
 - Never commit Cloudflare tokens, credentials, private topology, Reticulum identities, Home Assistant details, Telegram values, or deployment `.env` files.
 - Run `docker compose config` with an ignored local `.env` and `npm test` after changes to Compose, Nginx, or tests.

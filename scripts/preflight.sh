@@ -16,6 +16,7 @@ fail() {
 [[ -f "$deploy_root/.env" ]] || fail "deployment environment file not found: $deploy_root/.env"
 [[ $(stat -c '%a' "$deploy_root/.env") == "600" ]] || fail "deployment environment file must have mode 0600"
 
+"$repo_root/scripts/check-printer-host.sh" "$deploy_root/.env"
 docker compose -f "$deploy_compose" --env-file "$deploy_root/.env" config --quiet
 docker network inspect destaben-edge >/dev/null
 docker network inspect lab-inverse-proxy_tunnel_ingress >/dev/null
