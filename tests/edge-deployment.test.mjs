@@ -243,6 +243,20 @@ test("deploys automatically from main on the self-hosted runner with least privi
   assert.doesNotMatch(workflow, /secrets\./);
 });
 
+// `nginx -t` in the CI container resolves every upstream name at parse time, so a new upstream host
+// that is not mapped there fails the deployment before it starts (it happened with printer.internal).
+test("the deploy workflow maps every upstream host for nginx -t", async () => {
+  const [nginx, workflow] = await Promise.all([
+    readRepositoryFile("nginx/nginx.conf"),
+    readRepositoryFile(".github/workflows/deploy-edge.yml"),
+  ]);
+  const hosts = [...nginx.matchAll(/^\s*server ([a-z0-9.-]+):\d+;/gm)].map((match) => match[1]);
+  assert.ok(hosts.includes("printer.internal"), "expected the printer upstream to be discovered");
+  for (const host of hosts) {
+    assert.ok(workflow.includes(`--add-host ${host}:127.0.0.1`), `deploy-edge.yml must map ${host} for nginx -t`);
+  }
+});
+
 test("deploy.sh recreates Nginx and verify.sh probes the status route strictly", async () => {
   const [deploy, verify] = await Promise.all([
     readRepositoryFile("scripts/deploy.sh"),
