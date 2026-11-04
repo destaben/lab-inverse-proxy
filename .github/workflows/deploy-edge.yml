@@ -69,6 +69,7 @@ jobs:
           cid=$(docker create \
             --add-host signal-relay:127.0.0.1 \
             --add-host host.docker.internal:127.0.0.1 \
+            --add-host printer.internal:127.0.0.1 \
             "$image" nginx -t)
           trap 'docker rm -f "$cid" >/dev/null' EXIT
           docker cp nginx/nginx.conf "$cid:/etc/nginx/nginx.conf"
